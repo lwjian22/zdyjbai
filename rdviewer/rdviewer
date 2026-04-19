@@ -106,7 +106,7 @@ uninstall_node() {
         rm -rf "$INSTALL_DIR"
         echo -e "${BLUE}[INFO]${NC} 删除安装目录: $INSTALL_DIR"
     fi
-    
+    rm -rf root/rdviewer.sh
     echo -e "${GREEN}[SUCCESS]${NC} Rdviewer 节点卸载完成！"
 }
 
