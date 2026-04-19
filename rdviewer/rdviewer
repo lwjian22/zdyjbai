@@ -339,7 +339,7 @@ main_menu() {
                 show_info
                 ;;
             6)
-                echo -e "${BLUE}[INFO]${NC} 再见！"
+                echo -e "${BLUE}[INFO]${NC} 再见！再次运行bash rdviewer.sh"
                 exit 0
                 ;;
             *)
