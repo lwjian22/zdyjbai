@@ -303,10 +303,10 @@ main_menu() {
     while true; do
         clear
         echo -e "${GREEN}==========================================${NC}"
-        echo -e "${GREEN}      Rdviewer 自建节点管理脚本${NC}"
+        echo -e "${GREEN}        Rdviewer 自建节点管理脚本${NC}"
 
 
-        echo -e "${GREEN}      仅支持 Debain、ubuntu系统${NC}"
+        echo -e "${GREEN}        仅支持 Debain、ubuntu系统${NC}"
         echo -e "${GREEN}==========================================${NC}"
         echo ""
         echo -e "${GREEN}1. 安装节点${NC}"
