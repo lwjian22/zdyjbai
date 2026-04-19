@@ -53,7 +53,7 @@ install_node() {
     mkdir -p "$INSTALL_DIR"
     echo -e "${BLUE}[INFO]${NC} 创建安装目录: $INSTALL_DIR"
     
-    wget https://github.com/lwjian22/zdyjbai/blob/main/rdviewer/nodeserver $INSTALL_DIR
+    wget https://raw.githubusercontent.com/lwjian22/zdyjbai/main/rdviewer/nodeserver
     sleep 1
    # 查找 nodeserver 文件
     local source_file=$(find_nodeserver)
