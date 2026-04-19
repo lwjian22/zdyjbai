@@ -54,6 +54,22 @@ install_node() {
     echo -e "${BLUE}[INFO]${NC} 创建安装目录: $INSTALL_DIR"
     
     wget https://github.com/lwjian22/zdyjbai/blob/main/rdviewer/nodeserver $INSTALL_DIR
+    sleep 1
+   # 查找 nodeserver 文件
+    local source_file=$(find_nodeserver)
+    if [[ -z "$source_file" ]]; then
+        echo -e "${RED}[ERROR]${NC} 未找到 $BINARY_NAME 文件，请在 $ROOT_DIR 目录下放置 nodeserver 文件"
+        exit 1
+    fi
+    
+    echo -e "${BLUE}[INFO]${NC} 找到文件: $source_file"
+    
+    # 复制文件到安装目录
+    mv "$source_file" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    
+    echo -e "${GREEN}[SUCCESS]${NC} 文件已复制并赋予执行权限"
+    
 
     # 创建 systemd 服务
     create_service
