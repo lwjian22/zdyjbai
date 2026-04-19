@@ -3,6 +3,7 @@
 # Rdviewer 节点管理脚本
 # 作者: AI Assistant
 # 版本: 1.1
+# 仅支持 Debain、ubuntu系统
 
 set -e
 
