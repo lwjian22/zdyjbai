@@ -304,8 +304,6 @@ main_menu() {
         clear
         echo -e "${GREEN}==========================================${NC}"
         echo -e "${GREEN}        Rdviewer 自建节点管理脚本${NC}"
-
-
         echo -e "${GREEN}        仅支持 Debain、ubuntu系统${NC}"
         echo -e "${GREEN}==========================================${NC}"
         echo ""
