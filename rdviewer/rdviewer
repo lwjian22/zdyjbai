@@ -302,19 +302,19 @@ show_info() {
 main_menu() {
     while true; do
         clear
-        echo -e"${GREEN}==========================================${NC}"
-        echo -e"      Rdviewer 自建节点管理脚本${NC}"
+        echo -e "${GREEN}==========================================${NC}"
+        echo -e "      Rdviewer 自建节点管理脚本${NC}"
 
 
         echo -e "${GREEN}仅支持 Debain、ubuntu系统${NC}"
-        echo -e"${GREEN}==========================================${NC}"
+        echo -e "${GREEN}==========================================${NC}"
         echo ""
-        echo -e"${GREEN}1. 安装节点${NC}"
-        echo -e"${GREEN}2. 卸载节点${NC}"
-        echo -e"${GREEN}3. 服务管理${NC}"
-        echo -e"${GREEN}4. 修改端口${NC}"
-        echo -e"${GREEN}5. 查看系统信息${NC}"
-        echo -e"${RED}6. 退出${NC}"
+        echo -e "${GREEN}1. 安装节点${NC}"
+        echo -e "${GREEN}2. 卸载节点${NC}"
+        echo -e "${GREEN}3. 服务管理${NC}"
+        echo -e "${GREEN}4. 修改端口${NC}"
+        echo -e "${GREEN}5. 查看系统信息${NC}"
+        echo -e "${RED}6. 退出${NC}"
         echo ""
         
         read -ep "请选择操作 (1-6): " choice
