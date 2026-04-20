@@ -129,9 +129,10 @@ Description=Rdviewer Node Server
 After=network.target
 
 [Service]
-Type=simple
+Type=forking
 ExecStart=$INSTALL_DIR/$BINARY_NAME $port
-RemainAfterExit=yes
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -244,9 +245,10 @@ Description=Rdviewer Node Server
 After=network.target
 
 [Service]
-Type=simple
+Type=forking
 ExecStart=$INSTALL_DIR/$BINARY_NAME $new_port
-RemainAfterExit=yes
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
