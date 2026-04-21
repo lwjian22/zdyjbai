@@ -437,24 +437,16 @@ _red "rinetd工具及服务已删除"
 
 menu_top(){
 _blue "               说         明           "
-echo -e
 _blue "           脚本作者:lwjian22与AI        "
-echo
+echo -e
 _blue "适用基于 Linux的Ubuntu、centos、debian系统"
-echo -e
 _blue "一键卸载阿里云安骑士监控"
-echo -e
 _blue "一键全自动安装 OpenVPN_red（限首次运行）自定义安装openvpn(限首次运行)"
-echo -e
 _blue "frp自定义端口和连接密钥token并配置转发31400-31409端口文件"
-echo -e
 _red  "/mnt/frp/frpc.ini需下载到本地电脑填入云服IP使用"
-echo -e
 _blue "redir一键全自动安装和卸载+转发31400-31409端口(需装openvpn配合)"
-echo -e
 _blue "rinetd一键全自动安装\卸载+转发31400-31409端口(需装openvpn配合)"
  _red "rinetd端口配置文件路径在 /data/rinetd/etc/rinetd.conf 可自行增减"
-echo -e
 echo -e
 }
 
