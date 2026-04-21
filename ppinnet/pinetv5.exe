@@ -1,0 +1,548 @@
+#!/bin/bash
+
+#初始化
+initself() {
+    version='1.2.1'
+    installType='yum -y install'
+    removeType='yum -y remove'
+    upgrade="yum -y update"
+    release='linux'
+}
+
+  #字体颜色定义
+_red() {
+    printf '\033[0;31;31m%b\033[0m' "$1"
+    echo
+}
+_green() {
+        printf '\033[0;31;32m%b\033[0m' "$1"
+        echo
+}
+_yellow() {
+        printf '\033[0;31;33m%b\033[0m' "$1"
+        echo
+    }
+_blue() {
+        printf '\033[0;31;36m%b\033[0m' "$1"
+        echo
+    }
+
+#检查系统
+checkSystem() {
+    if [[ -n $(find /etc -name "redhat-release") ]] || grep </proc/version -q -i "centos"; then
+        release="centos"
+        installType='yum -y install'
+        removeType='yum -y remove'
+        upgrade="yum update -y --skip-broken"
+    elif [[ -f "/etc/issue" ]] && grep </etc/issue -q -i "debian" || [[ -f "/proc/version" ]] && grep </etc/issue -q -i "debian" || [[ -f "/etc/os-release" ]] && grep </etc/os-release -q -i "ID=debian"; then
+        release="debian"
+        installType='apt -y install'
+        upgrade="apt update"
+        removeType='apt -y autoremove'
+    elif [[ -f "/etc/issue" ]] && grep </etc/issue -q -i "ubuntu" || [[ -f "/proc/version" ]] && grep </etc/issue -q -i "ubuntu"; then
+        release="ubuntu"
+        installType='apt -y install'
+        upgrade="apt update"
+        removeType='apt -y autoremove'
+    elif [[ -f "/etc/issue" ]] && grep </etc/issue -q -i "Alpine" || [[ -f "/proc/version" ]] && grep </proc/version -q -i "Alpine"; then
+        release="alpine"
+        installType='apk add'
+        upgrade="apk update"
+        removeType='apt del'
+    fi
+
+    if [[ -z ${release} ]]; then
+        echoContent red "\n不支持此系统\n"
+        _red "$(cat /etc/issue)"
+        _red "$(cat /proc/version)"
+        exit 0
+    fi
+}
+
+#卸载阿里云安骑士
+aliyun_xiezai(){
+wget http://update.aegis.aliyun.com/download/uninstall.sh
+chmod +x uninstall.sh
+./uninstall.sh
+wget http://update.aegis.aliyun.com/download/quartz_uninstall.sh
+chmod +x quartz_uninstall.sh
+./quartz_uninstall.sh
+#删除卸载后的残留信息，执行以下命令
+pkill aliyun-service
+rm -rf /etc/init.d/agentwatch /usr/sbin/aliyun-service
+rm -rf /usr/local/aegis*
+
+#屏蔽安骑IP，防止系统扫描服务器，对服务造成影响，执行以下命令：
+
+iptables -I INPUT -s 140.205.201.0/28 -j DROP
+iptables -I INPUT -s 140.205.201.16/29 -j DROP
+iptables -I INPUT -s 140.205.201.32/28 -j DROP
+iptables -I INPUT -s 140.205.225.192/29 -j DROP
+iptables -I INPUT -s 140.205.225.200/30 -j DROP
+iptables -I INPUT -s 140.205.225.184/29 -j DROP
+iptables -I INPUT -s 140.205.225.183/32 -j DROP
+iptables -I INPUT -s 140.205.225.206/32 -j DROP
+iptables -I INPUT -s 140.205.225.205/32 -j DROP
+iptables -I INPUT -s 140.205.225.195/32 -j DROP
+iptables -I INPUT -s 140.205.225.204/32 -j DROP
+}
+
+#全自动安装openvpn
+install_openvpn() {
+#下载
+#如果文件不存在执行then
+    if [ ! -f "/root/openvpn.sh" ]; then
+
+    sudo wget -O openvpn.sh https://get.vpnsetup.net/ovpn
+    sleep 1
+    fi
+#安装
+    if [ -f "/etc/systemd/system/openvpn-iptables.service" ]; then
+    sudo bash openvpn.sh
+  else
+    sudo bash openvpn.sh --auto
+    _green "openvpn安装成功"
+    fi
+}
+#自定义协议端口安装，e.g. vpn.example.com, instead of its IP address? [y/N] 选N
+install2_openvpn() {
+#下载
+    if [ ! -f "/root/openvpn.sh" ]; then
+    sudo wget -O openvpn.sh https://get.vpnsetup.net/ovpn
+    sleep 1
+    fi
+#安装
+    _red "注：e.g. vpn.example.com, instead of its IP address? 选N"
+    sudo bash openvpn.sh
+    _green "openvpn安装成功"
+}
+#frp启动服务
+start_frpservice() {
+    _green "启动frp服务"
+    systemctl enable frps.service
+    systemctl daemon-reload
+    systemctl start frps.service
+}
+
+#frp停止服务
+stop_frpservice() {
+    _red "停止frp服务"
+    systemctl stop frps.service
+    systemctl disable frps.service
+}
+
+#卸载frp
+uninstall_frp() {
+    stop_frpservice
+    sudo rm -rf /mnt/frp
+    sudo rm -rf /etc/systemd/system/frps.service
+    _red "frp服务已卸载"
+}
+
+#创建frp服务
+install_frpservice() {   
+    if [ ! -f "/etc/systemd/system/frps.service" ]; then
+#文件不存在
+    touch /etc/systemd/system/frps.service
+fi	
+    cat <<EOF > /etc/systemd/system/frps.service
+[Unit]
+Description=Frp Server Service
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/mnt/frp/frps -c /mnt/frp/frps.ini
+Restart=always
+RestartSec=3
+StartLimitInterval=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+#frp设置端口函数
+set_frpport() {
+while true ; do
+    _green '设置frp端口（1-65535之间的整数）: '
+    read -r num
+    if [[ $num =~ ^[0-9]+$ ]] && [ $num -ge 1 ] && [ $num -le 65535 ]; then
+        break
+        else
+    _red '输入错误，请重新输入。'
+    fi
+    done 
+}
+
+choice(){
+# 询问是否继续操作
+    _green "是否修改frp端口和token？(y修改/n不修改)"
+    read answer
+    if [[ "$answer" == "n" ]]; then
+    #启动frp服务
+    install_frpservice
+    start_frpservice
+    _green 'frp安装成功'
+    _green '修改本地frpc.ini文件中的IP地址'
+    exit
+    fi
+}
+
+set_token() {
+    _green "设置frp-token（字母、数字）: "
+    read -r password
+}
+
+fix_frpini(){
+
+if [ ! -f "/mnt/frp/frps.ini" ]; then
+#如果文件不存在，则创建。
+    touch /mnt/frp/frps.ini
+fi
+
+cat <<EOF >/mnt/frp/frps.ini
+[common]
+bind_port = $num
+token = $password
+EOF
+
+if [ ! -f "/mnt/frp/frpc.ini" ]; then
+#如果文件不存在，则创建。
+    touch /mnt/frp/frpc.ini
+fi
+
+cat <<EOF >/mnt/frp/frpc.ini
+[common]
+server_addr = 你的服务器IP
+server_port = $num
+token = $password
+[31400]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31400
+remote_port = 31400
+[31401]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31401
+remote_port = 31401
+[31402]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31402
+remote_port = 31402
+[31403]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31403
+remote_port = 31403
+[31404]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31404
+remote_port = 31404
+[31405]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31405
+remote_port = 31405
+[31406]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31406
+remote_port = 31406
+[31407]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31407
+remote_port = 31407
+[31408]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31408
+remote_port = 31408
+[31409]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 31409
+remote_port = 31409
+EOF
+_green '下载 /mnt/frp/frpc.ini 替换本地电脑的frpc.ini'
+_green '修改frpc.ini文件中的IP地址'
+}
+
+
+#安装frp定义为函数用以调用
+install_frp() {
+#检查是否已安装
+if [ -f "/etc/systemd/system/frps.service" ]; then
+    echo "检测到文件存在 覆盖安装..."
+    uninstall_frp
+fi
+    mkdir -p /mnt 	
+    cd /mnt
+    sudo wget https://github.com/fatedier/frp/releases/download/v0.38.0/frp_0.38.0_linux_386.tar.gz
+    sleep 1
+    tar -zxvf frp_0.38.0_linux_386.tar.gz
+    mv frp_0.38.0_linux_386 frp
+    sudo rm -rf /mnt/frp/frpc*
+    sudo rm -rf /mnt/frp_0.38.0_linux_386.tar.gz
+    #是否修改frp端口和token
+    choice
+    #修改frp端口
+    set_frpport
+    #修改frp的token
+    set_token
+    #修改frp的ini文件
+    fix_frpini
+    #启动frp服务
+    install_frpservice
+    start_frpservice
+    _green "frp安装成功"
+} 
+
+#创建redir启动服务
+redir_service() {
+touch /etc/systemd/system/redir.service
+sleep 1
+
+cat <<'EOF' > /etc/systemd/system/redir.service
+[Unit]
+Description=redir Service
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/bin/bash -c 'for ((port=31400; port<=31409; port++)); do redir ":$port" "10.8.0.2:$port"; done'
+Restart=always
+RestartSec=3
+StartLimitInterval=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sleep 1
+# 启用服务
+systemctl enable redir.service
+
+# 重新加载 Systemd 管理的服务
+systemctl daemon-reload
+# 启动服务
+systemctl start redir.service
+
+_green "启动redir服务成功"
+}
+
+#卸载redir启动服务
+redir_servicedel(){
+ _red "卸载redir服务"
+ systemctl stop redir.service
+ systemctl disable redir.service
+ sudo rm -rf /etc/systemd/system/redir.service
+}
+
+#安装redir和端口转发
+install_redir() {
+    ${installType} redir
+    _green "redir 安装成功，正在设置端口转发"
+    sleep 1
+    ${installType} net-tools
+    #启动redir服务
+    redir_service
+    # 列出当前系统已映射端口
+    sleep 1
+    netstat -tlunp
+    _green "redir端口转发成功"
+}
+
+install_rinetd() {
+#1.rinetd 下载安装
+${installType} rinetd && ${installType} net-tools
+_green "rinetd安装成功"
+sleep 1
+
+#3.编辑配置文件31400-31409
+if [ ! -f "/etc/rinetd.conf" ]; then
+#如果文件不存在，则创建。
+touch /etc/rinetd.conf
+fi
+cat <<EOF >> /etc/rinetd.conf
+# Pi-Node节点端口转发
+0.0.0.0     31400       10.8.0.2     31400
+0.0.0.0     31401       10.8.0.2     31401
+0.0.0.0     31402       10.8.0.2     31402
+0.0.0.0     31403       10.8.0.2     31403
+0.0.0.0     31404       10.8.0.2     31404
+0.0.0.0     31405       10.8.0.2     31405
+0.0.0.0     31406       10.8.0.2     31406
+0.0.0.0     31407       10.8.0.2     31407
+0.0.0.0     31408       10.8.0.2     31408
+0.0.0.0     31409       10.8.0.2     31409
+EOF
+
+_green "31400-31409端口转发已设置"
+_red "rinetd端口配置文件路径在 /etc/rinetd.conf 可自行增减"
+
+sleep 1
+if [ ! -f "/usr/lib/systemd/system/rinetd.service" ]; then
+#如果文件不存在，则创建。
+touch /usr/lib/systemd/system/rinetd.service
+fi
+
+cat >/usr/lib/systemd/system/rinetd.service <<EOF
+[Unit]
+Description=Rinetd Internet TCP/UDP redirection server
+Documentation=man:rinetd(8)
+Wants=network-online.target
+After=network-online.target local-fs.target remote-fs.target
+
+[Service]
+Type=forking
+ExecStart=/usr/sbin/rinetd
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/run/rinetd.pid
+Restart=always
+RestartSec=3
+StartLimitInterval=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload && systemctl restart rinetd
+
+#2.设置开机启动
+
+systemctl enable rinetd
+_green "rinetd开机服务已启动"
+sleep 1
+}
+
+#卸载rinetd工具及服务
+uninstall_rinetd(){
+
+systemctl stop rinetd && systemctl disable rinetd
+
+${removeType} rinetd
+rm -rf /etc/rinetd.conf
+
+_red "rinetd工具及服务已删除"
+}
+
+
+menu_top(){
+_blue "               说         明           "
+echo
+_blue "适用基于 Linux的Ubuntu、centos、debian系统"
+echo -e
+_blue "一键卸载阿里云安骑士监控"
+echo -e
+_blue "一键全自动安装 OpenVPN_red（限首次运行）自定义安装openvpn(限首次运行)"
+echo -e
+_blue "frp自定义端口和连接密钥token并配置转发31400-31409端口文件"
+echo -e
+_red  "/mnt/frp/frpc.ini需下载到本地电脑填入云服IP使用"
+echo -e
+_blue "redir一键全自动安装和卸载+转发31400-31409端口(需装openvpn配合)"
+echo -e
+_blue "rinetd一键全自动安装\卸载+转发31400-31409端口(需装openvpn配合)"
+ _red "rinetd端口配置文件路径在 /data/rinetd/etc/rinetd.conf 可自行增减"
+echo -e
+echo -e
+}
+
+#显示菜单选项定义为函数用以调用
+show_menu() {  
+# 显示菜单选项
+  _green "请选择菜单：（frp，redir二选一）"
+       echo "1) 卸载阿里云安骑士监控"
+    _yellow "2) 全自动安装openvpn"
+      _blue "3) 自定义安装openvpn"
+    _yellow "4) 安装frp"
+       _red "5) 卸载frp"
+      _blue "6) 安装redir和31400-31409端口转发(需装openvpn配合)"
+       _red "7) 卸载redir和31400-31409端口转发"
+      _blue "8) 安装rinetd和31400-31409端口转发(需装openvpn配合)"
+       _red "9) 卸载rinetd和31400-31409端口转发"
+      echo "10) 退出并卸载pinetv5脚本"
+    read choice
+
+# 根据选择显示信息
+    case $choice in
+        1)
+        _green "卸载阿里云安骑士监控"
+        aliyun_xiezai
+        ;;
+        2)
+        _green "全自动安装openvpn"
+        sleep 1
+        install_openvpn
+        ;;
+        3)
+        _green "自定义安装openvpn"
+        sleep 1
+        install2_openvpn
+        ;;
+        4)
+        _green "安装frp"
+        sleep 1
+        install_frp
+        ;;
+        5)
+        _green "卸载frp"
+        sleep 1
+        uninstall_frp
+        ;;
+        6)
+        _green "安装redir和31400-31409端口转发(需装openvpn配合)"
+        sleep 1
+        install_redir
+        ;;
+        7)
+        _green "卸载redir和31400-31409端口转发"
+        redir_servicedel
+        sleep 1
+        ${removeType} redir
+        _red "redir卸载成功"
+        netstat -tlunp
+        ;;
+        8)
+        _green "安装rinetd和31400-31409端口转发(需装openvpn配合)"
+        install_rinetd
+        netstat -tunlp
+        ;;
+        9)
+        _green "卸载rinetd和31400-31409端口转发"
+        uninstall_rinetd
+        netstat -tlunp
+        ;;
+        10)
+        _green "退出并卸载pinetv5脚本"
+        rm -rf /root/pinetv5.sh
+        exit   
+        ;;
+        *)
+        _green "无效的选择，请重新选择。"
+        ;;
+    esac
+
+# 询问是否继续操作
+    _green "是否返回菜单？(y返回/n结束)"
+    read answer
+    if [[ "$answer" == "n" ]]; then
+    exit
+    fi
+}
+
+initself
+checkSystem
+menu_top
+while true; do   #while true; do 循环调用以done结尾
+    show_menu
+    clear
+done
