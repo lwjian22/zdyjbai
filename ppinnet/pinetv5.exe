@@ -167,7 +167,7 @@ EOF
 set_frpport() {
 while true ; do
     _green '设置frp端口（1-65535之间的整数）: '
-    read -r num
+    read -r -ep "端口：" num
     if [[ $num =~ ^[0-9]+$ ]] && [ $num -ge 1 ] && [ $num -le 65535 ]; then
         break
         else
@@ -179,7 +179,7 @@ while true ; do
 choice(){
 # 询问是否继续操作
     _green "是否修改frp端口和token？(y修改/n不修改)"
-    read answer
+    read -ep "选择:" answer
     if [[ "$answer" == "n" ]]; then
     #启动frp服务
     install_frpservice
@@ -192,7 +192,7 @@ choice(){
 
 set_token() {
     _green "设置frp-token（字母、数字）: "
-    read -r password
+    read -r -ep "密码:" password
 }
 
 fix_frpini(){
@@ -436,10 +436,10 @@ _red "rinetd工具及服务已删除"
 
 
 menu_top(){
-_blue "               说         明           "
-_blue "           脚本作者:lwjian22与AI        "
-echo -e
-_blue "适用基于 Linux的Ubuntu、centos、debian系统"
+echo -e"==================================================================="
+_blue "                 说         明            "
+_blue "            脚本作者: lwjian22与AI          "
+_blue "适用基于 Linux的 Ubuntu、centos、debian 系统"
 _blue "一键卸载阿里云安骑士监控"
 _blue "一键全自动安装 OpenVPN_red（限首次运行）自定义安装openvpn(限首次运行)"
 _blue "frp自定义端口和连接密钥token并配置转发31400-31409端口文件"
@@ -447,7 +447,7 @@ _red  "/mnt/frp/frpc.ini需下载到本地电脑填入云服IP使用"
 _blue "redir一键全自动安装和卸载+转发31400-31409端口(需装openvpn配合)"
 _blue "rinetd一键全自动安装\卸载+转发31400-31409端口(需装openvpn配合)"
  _red "rinetd端口配置文件路径在 /data/rinetd/etc/rinetd.conf 可自行增减"
-echo -e
+echo -e "==================================================================="
 }
 
 #显示菜单选项定义为函数用以调用
@@ -464,7 +464,7 @@ show_menu() {
       _blue "8) 安装rinetd和31400-31409端口转发(需装openvpn配合)"
        _red "9) 卸载rinetd和31400-31409端口转发"
       echo "10) 退出并卸载pinetv5脚本"
-    read choice
+    read -ep "选择:" choice
 
 # 根据选择显示信息
     case $choice in
@@ -527,7 +527,7 @@ show_menu() {
 
 # 询问是否继续操作
     _green "是否返回菜单？(y返回/n结束)"
-    read answer
+    read -ep "选择:" answer
     if [[ "$answer" == "n" ]]; then
     exit
     fi
