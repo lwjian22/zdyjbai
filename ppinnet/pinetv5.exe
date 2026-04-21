@@ -437,6 +437,8 @@ _red "rinetd工具及服务已删除"
 
 menu_top(){
 _blue "               说         明           "
+echo -e
+_blue "           脚本作者:lwjian22与AI        "
 echo
 _blue "适用基于 Linux的Ubuntu、centos、debian系统"
 echo -e
