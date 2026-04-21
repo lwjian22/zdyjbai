@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#脚本作者:lwjian22与AI
 #初始化
 initself() {
     version='1.2.1'
