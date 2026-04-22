@@ -46,9 +46,9 @@ checkSystem() {
         removeType='apt -y autoremove'
     elif [[ -f "/etc/issue" ]] && grep </etc/issue -q -i "Alpine" || [[ -f "/proc/version" ]] && grep </proc/version -q -i "Alpine"; then
         release="alpine"
-        installType='apk add'
+        installType='apk add -y'
         upgrade="apk update"
-        removeType='apt del'
+        removeType='apk del -y'
     fi
 
     if [[ -z ${release} ]]; then
