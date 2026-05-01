@@ -1,0 +1,380 @@
+#!/bin/sh
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
+export PATH
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+# 检查root权限
+if [ "$(id -u)" -ne  ]; then
+    echo -e "${RED}错误：请使用root用户运行此脚本${NC}"
+    exit 1
+fi
+
+# 检查TUN设备
+if [ ! -e /dev/net/tun ]; then
+    echo -e "${RED}错误：TUN设备不可用，请先启用TUN${NC}"
+    echo -e "运行以下命令启用："
+    echo -e "modprobe tun"
+    echo -e "echo 'tun' >> /etc/modules"
+    exit 1
+fi
+
+# 检查Alpine Linux
+if [ ! -f /etc/alpine-release ]; then
+    echo -e "${RED}错误：此脚本仅适用于Alpine Linux${NC}"
+    exit 1
+fi
+
+# 改进的IP获取函数
+get_server_ip() {
+    # 检查IP地址是否有效
+    is_valid_ip() {
+        local ip=$1
+        if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            return 0
+        else
+            return 1
+        fi
+    }
+
+    # 尝试获取本地IP
+    local_ip=$(ip route get 1 2>/dev/null | awk '{print $NF;exit}' 2>/dev/null || \
+               ip addr show 2>/dev/null | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -n 1)
+
+    # 尝试获取公网IP
+    public_ip_urls=(
+        "http://ipinfo.io/ip"
+        "http://icanhazip.com"
+        "http://ident.me"
+        "http://ifconfig.me"
+        "http://ipecho.net/plain"
+        "http://checkip.amazonaws.com"
+    )
+
+    public_ip=""
+    for url in "${public_ip_urls[@]}"; do
+        public_ip=$(wget -T 5 -t 1 -4qO- "$url" 2>/dev/null || curl -m 5 -4Ls "$url" 2>/dev/null)
+        public_ip=$(echo "$public_ip" | grep -m 1 -oE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
+        if is_valid_ip "$public_ip"; then
+            break
+        fi
+    done
+
+    # 优先使用公网IP，如果没有则使用本地IP
+    if is_valid_ip "$public_ip"; then
+        echo "$public_ip"
+    elif is_valid_ip "$local_ip"; then
+        echo "$local_ip"
+    else
+        echo ""
+    fi
+}
+
+# 获取IP地址
+IP=$(get_server_ip)
+
+if [ -z "$IP" ]; then
+    echo "无法自动检测IP地址，请手动输入"
+    read -p "请输入服务器公网IP地址: " IP
+    # 验证手动输入的IP
+    if ! [[ $IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        echo "错误：输入的IP地址格式不正确"
+        exit 4
+    fi
+fi
+
+newclient() {
+    # 确保客户端证书存在
+    if [ ! -f "/etc/openvpn/easy-rsa/pki/issued/$1.crt" ]; then
+        echo -e "${YELLOW}客户端证书不存在，正在创建...${NC}"
+        cd /etc/openvpn/easy-rsa/ || exit 1
+        ./easyrsa build-client-full "$1" nopass
+    fi
+
+    # 生成客户端配置文件
+    cat > ~/"$1".ovpn <<EOF
+$(cat /etc/openvpn/client-common.txt)
+<ca>
+$(cat /etc/openvpn/easy-rsa/pki/ca.crt)
+</ca>
+<cert>
+$(cat /etc/openvpn/easy-rsa/pki/issued/"$1".crt)
+</cert>
+<key>
+$(cat /etc/openvpn/easy-rsa/pki/private/"$1".key)
+</key>
+<tls-crypt>
+$(cat /etc/openvpn/tc.key)
+</tls-crypt>
+EOF
+    echo -e "${GREEN}客户端 $1 配置文件已创建: ${YELLOW}~/$1.ovpn${NC}"
+}
+
+# 初始化PKI和证书
+init_pki() {
+    echo -e "${YELLOW}[1/4] 正在初始化PKI和证书...${NC}"
+    
+    # 安装必要软件包
+    apk add --no-cache openvpn easy-rsa openssl iptables wget
+    
+    # 清理旧数据
+    rm -rf /etc/openvpn/easy-rsa
+    mkdir -p /etc/openvpn/easy-rsa
+    cp -r /usr/share/easy-rsa/* /etc/openvpn/easy-rsa/
+    
+    # 创建vars配置文件
+    cat > /etc/openvpn/easy-rsa/vars <<EOF
+set_var EASYRSA_REQ_COUNTRY "CN"
+set_var EASYRSA_REQ_PROVINCE "Beijing"
+set_var EASYRSA_REQ_CITY "Beijing"
+set_var EASYRSA_REQ_ORG "OpenVPN"
+set_var EASYRSA_REQ_EMAIL "admin@example.com"
+set_var EASYRSA_REQ_OU "OpenVPN"
+set_var EASYRSA_BATCH "yes"
+EOF
+    
+    cd /etc/openvpn/easy-rsa/ || exit 1
+    
+    # 初始化并创建证书
+    ./easyrsa init-pki
+    ./easyrsa build-ca nopass
+    
+    # 使用预定义的ffdhe2048 DH参数
+    echo '-----BEGIN DH PARAMETERS-----
+MIIBCAKCAQEA//////////+t+FRYortKmq/cViAnPTzx2LnFg84tNpWp4TZBFGQz
++8yTnc4kmz75fS/jY2MMddj2gbICrsRhetPfHtXV/WVhJDP1H18GbtCFY2VVPe0a
+87VXE15/V8k1mE8McODmi3fipona8+/och3xWKE2rec1MKzKT0g6eXq8CrGCsyT7
+YdEIqUuyyOP7uWrat2DX9GgdT0Kj3jlN9K5W7edjcrsZCwenyO4KbXCeAvzhzffi
+7MA0BM0oNC9hkXL+nOmFg/+OTxIy7vKBg8P+OxtMb61zO7X8vC7CIAXFjvGDfRaD
+ssbzSibBsu/6iGtCOGEoXJf//////////wIBAg==
+-----END DH PARAMETERS-----' > /etc/openvpn/dh.pem
+    
+    ./easyrsa build-server-full server nopass
+    ./easyrsa build-client-full client nopass
+    EASYRSA_CRL_DAYS=3650 ./easyrsa gen-crl
+    
+    # 生成TLS加密密钥
+    openvpn --genkey --secret /etc/openvpn/tc.key
+    
+    # 复制证书文件
+    cp pki/ca.crt pki/private/ca.key \
+       pki/issued/server.crt \
+       pki/private/server.key pki/issued/client.crt \
+       pki/private/client.key pki/crl.pem /etc/openvpn/
+    
+    # 设置权限
+    chown nobody:nobody /etc/openvpn/crl.pem /etc/openvpn/tc.key
+}
+
+# 配置OpenVPN服务器
+configure_server() {
+    echo -e "${YELLOW}[2/4] 正在配置OpenVPN服务器...${NC}"
+    
+    PROTOCOL=${1:-udp}
+    PORT=${2:-1194}
+    
+    # 创建server.conf
+    cat > /etc/openvpn/server.conf <<EOF
+port $PORT
+proto $PROTOCOL
+dev tun
+ca ca.crt
+cert server.crt
+key server.key
+dh dh.pem
+auth SHA256
+tls-crypt tc.key
+topology subnet
+server 10.8.0.0 255.255.255.0
+push "redirect-gateway def1 bypass-dhcp"
+push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4"
+push "block-outside-dns"
+keepalive 10 120
+cipher AES-128-GCM
+user nobody
+group nobody
+persist-key
+persist-tun
+verb 3
+crl-verify crl.pem
+EOF
+    
+    # 创建符号链接确保兼容性
+    ln -sf /etc/openvpn/server.conf /etc/openvpn/openvpn.conf
+    
+    # 创建客户端通用配置
+    cat > /etc/openvpn/client-common.txt <<EOF
+client
+dev tun
+proto $PROTOCOL
+remote $IP $PORT
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+auth SHA256
+cipher AES-128-GCM
+ignore-unknown-option block-outside-dns
+verb 3
+EOF
+    
+    # 启用IP转发
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+    sed -i '/net.ipv4.ip_forward=1/s/^#//g' /etc/sysctl.conf
+}
+
+# 配置防火墙
+setup_firewall() {
+    echo -e "${YELLOW}[3/4] 正在配置防火墙...${NC}"
+    
+    PROTOCOL=$(grep '^proto ' /etc/openvpn/server.conf | awk '{print $2}')
+    PORT=$(grep '^port ' /etc/openvpn/server.conf | awk '{print $2}')
+    
+    # 获取默认网卡名称
+    DEFAULT_IF=$(ip route | grep '^default' | awk '{print $5}' | head -n1)
+    
+    # 清除旧规则
+    iptables -F
+    iptables -t nat -F
+    
+    # 添加NAT规则（改用MASQUERADE）
+    iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o $DEFAULT_IF -j MASQUERADE
+    
+    # 允许OpenVPN端口
+    iptables -A INPUT -p $PROTOCOL --dport $PORT -j ACCEPT
+    
+    # 允许已建立的连接
+    iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+    
+    # 允许VPN流量转发
+    iptables -A FORWARD -s 10.8.0.0/24 -j ACCEPT
+    iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+    
+    # 创建持久化脚本
+    cat > /etc/local.d/openvpn.start <<EOF
+#!/bin/sh
+iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o $DEFAULT_IF -j MASQUERADE
+iptables -A INPUT -p $PROTOCOL --dport $PORT -j ACCEPT
+iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -s 10.8.0.0/24 -j ACCEPT
+iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+EOF
+    
+    chmod +x /etc/local.d/openvpn.start
+    
+    # 确保启用IP转发
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+    sed -i '/net.ipv4.ip_forward=1/s/^#//g' /etc/sysctl.conf
+    sysctl -p
+}
+
+# 启动服务
+start_services() {
+    echo -e "${YELLOW}[4/4] 正在启动服务...${NC}"
+    
+    # 执行防火墙规则
+    /etc/local.d/openvpn.start
+    
+    # 启动OpenVPN服务
+    rc-update add openvpn default
+    rc-service openvpn start
+    
+    # 生成初始客户端配置
+    newclient "client"
+    
+    echo -e "${GREEN}OpenVPN 安装完成！${NC}"
+    echo -e "客户端配置文件: ${YELLOW}~/client.ovpn${NC}"
+}
+
+# 主安装函数
+main_install() {
+    clear
+    echo -e "${GREEN}OpenVPN一键安装脚本(Alpine专用)${NC}"
+    echo "============================================"
+    
+    # 用户确认
+    echo "在继续之前，请确认您已了解："
+    echo "1. 中华人民共和国相关法律法规"
+    echo "2. 本脚本仅用于合法用途"
+    read -p "是否继续安装? [y/n]: " -e -i y confirm
+    [ "$confirm" != "y" ] && exit
+    
+    # 获取配置参数
+    read -p "协议类型 [udp/tcp]: " -e -i udp PROTOCOL
+    read -p "端口号: " -e -i 1194 PORT
+    
+    # 执行安装步骤
+    init_pki
+    configure_server "$PROTOCOL" "$PORT"
+    setup_firewall
+    start_services
+}
+
+# 管理菜单
+show_menu() {
+    clear
+    echo "OpenVPN管理面板"
+    echo "-----------------------------------------------"
+    echo "   1) 添加新用户"
+    echo "   2) 删除用户"
+    echo "   3) 卸载OpenVPN"
+    echo "   4) 退出"
+    read -p "选择操作 [1-4]: " option
+    
+    case $option in
+        1)
+            echo ""
+            read -p "输入客户端名称: " -e -i client CLIENT
+            cd /etc/openvpn/easy-rsa/ || exit 1
+            ./easyrsa build-client-full "$CLIENT" nopass
+            newclient "$CLIENT"
+            ;;
+        2)
+            NUMBEROFCLIENTS=$(tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep -c "^V")
+            if [ "$NUMBEROFCLIENTS" = '0' ]; then
+                echo "没有可删除的客户端！"
+                exit
+            fi
+            
+            echo "选择要吊销的证书:"
+            tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | nl -s ') '
+            read -p "选择客户端: " CLIENTNUMBER
+            CLIENT=$(tail -n +2 /etc/openvpn/easy-rsa/pki/index.txt | grep "^V" | cut -d '=' -f 2 | sed -n "$CLIENTNUMBER"p)
+            
+            cd /etc/openvpn/easy-rsa/ || exit 1
+            ./easyrsa --batch revoke "$CLIENT"
+            EASYRSA_CRL_DAYS=3650 ./easyrsa gen-crl
+            rm -f pki/reqs/"$CLIENT".req pki/private/"$CLIENT".key pki/issued/"$CLIENT".cr
+            cp pki/crl.pem /etc/openvpn/
+            chown nobody:nobody /etc/openvpn/crl.pem
+            echo "证书 $CLIENT 已被吊销"
+            ;;
+        3)
+            read -p "确认卸载OpenVPN? [y/n]: " -e -i n confirm
+            if [ "$confirm" = "y" ]; then
+                rc-service openvpn stop
+                rc-update del openvpn
+                apk del openvpn easy-rsa
+                rm -rf /etc/openvpn
+                rm -f /etc/local.d/openvpn.start
+                echo "OpenVPN 已卸载"
+            fi
+            ;;
+        4)
+            exit
+            ;;
+    esac
+}
+
+# 主执行逻辑
+if [ -f /etc/openvpn/server.conf ]; then
+    show_menu
+else
+    main_install
+fi
